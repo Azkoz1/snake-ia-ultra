@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>Snake AI - Ultra Edition</title>
+    <style>
+        :root {
+            --primary: #00f2ff;
+            --secondary: #7000ff;
+            --danger: #ff0055;
+            --bg: #050505;
+            --surface: #111;
+        }
+
+        body {
+            background-color: var(--bg);
+            color: white;
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            overflow: hidden;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        .stats {
+            display: flex;
+            gap: 40px;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 1.2rem;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            color: var(--primary);
+            text-shadow: 0 0 10px var(--primary);
+        }
+
+        #game-container {
+            position: relative;
+            padding: 10px;
+            background: linear-gradient(145deg, #1a1a1a, #000);
+            border-radius: 15px;
+            box-shadow: 0 0 50px rgba(0, 242, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        canvas {
+            border-radius: 10px;
+            display: block;
+        }
+
+        .ui-panel {
+            margin-top: 25px;
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            background: var(--surface);
+            padding: 15px 25px;
+            border-radius: 50px;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+
+        button {
+            background: linear-gradient(90deg, var(--secondary), var(--primary));
+            border: none;
+            color: white;
+            padding: 10px 25px;
+            border-radius: 20px;
+            font-weight: bold;
+            cursor: pointer;
+            text-transform: uppercase;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        button:hover {
+            transform: scale(1.05);
+            box-shadow: 0 0 15px var(--primary);
+        }
+
+        input[type=range] {
+            cursor: pointer;
+            width: 100px;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <div class="stats">
+            <div>Score: <span id="score">000</span></div>
+            <div>Best: <span id="highScore">000</span></div>
+        </div>
+    </div>
+
+    <div id="game-container">
+        <canvas id="game" width="500" height="500"></canvas>
+    </div>
+
+    <div class="ui-panel">
+        <button id="toggleMode">Mode : IA ACTIVE</button>
+        <div style="font-size: 0.8rem; opacity: 0.7;">VITESSE</div>
+        <input type="range" id="speed" min="1" max="10" value="7">
+    </div>
+
+    <script>
+        const canvas = document.getElementById('game');
+        const ctx = canvas.getContext('2d');
+        const scoreEl = document.getElementById('score');
+        const highEl = document.getElementById('highScore');
+        const modeBtn = document.getElementById('toggleMode');
+
+        const SIZE = 20;
+        const GRID = canvas.width / SIZE;
+        
+        let snake = [{x: 10, y: 10}];
+        let food = {x: 15, y: 15};
+        let dir = {x: 0, y: 0};
+        let score = 0;
+        let best = 0;
+        let isAI = true;
+        let frameCount = 0;
+
+        // Configuration Couleurs
+        const COLORS = {
+            snake: '#00f2ff',
+            food: '#ff0055',
+            grid: 'rgba(255, 255, 255, 0.03)'
+        };
+
+        function init() {
+            best = localStorage.getItem('snakeBest') || 0;
+            highEl.innerText = best.toString().padStart(3, '0');
+            loop();
+        }
+
+        function drawGrid() {
+            ctx.strokeStyle = COLORS.grid;
+            ctx.lineWidth = 1;
+            for(let i=0; i<=GRID; i++) {
+                ctx.beginPath();
+                ctx.moveTo(i*SIZE, 0); ctx.lineTo(i*SIZE, canvas.height);
+                ctx.stroke();
+                ctx.beginPath();
+                ctx.moveTo(0, i*SIZE); ctx.lineTo(canvas.width, i*SIZE);
+                ctx.stroke();
+            }
+        }
+
+        function getPath(start, target) {
+            let queue = [[start]];
+            let visited = new Set([`${start.x},${start.y}`]);
+            let body = new Set(snake.map(s => `${s.x},${s.y}`));
+
+            while(queue.length > 0) {
+                let path = queue.shift();
+                let curr = path[path.length - 1];
+
+                if(curr.x === target.x && curr.y === target.y) return path;
+
+                const neighbors = [
+                    {x: curr.x+1, y: curr.y}, {x: curr.x-1, y: curr.y},
+                    {x: curr.x, y: curr.y+1}, {x: curr.x, y: curr.y-1}
+                ];
+
+                for(let n of neighbors) {
+                    let id = `${n.x},${n.y}`;
+                    if(n.x >= 0 && n.x < GRID && n.y >= 0 && n.y < GRID && !visited.has(id) && !body.has(id)) {
+                        visited.add(id);
+                        queue.push([...path, n]);
+                    }
+                }
+            }
+            return null;
+        }
+
+        function moveIA() {
+            const path = getPath(snake[0], food);
+            if(path && path.length > 1) {
+                dir = {x: path[1].x - snake[0].x, y: path[1].y - snake[0].y};
+            } else {
+                // Survie : choisir n'importe quelle direction safe
+                const possible = [{x:1,y:0},{x:-1,y:0},{x:0,y:1},{x:0,y:-1}];
+                let body = new Set(snake.map(s => `${s.x},${s.y}`));
+                for(let p of possible) {
+                    let nx = snake[0].x + p.x;
+                    let ny = snake[0].y + p.y;
+                    if(nx>=0 && nx<GRID && ny>=0 && ny<GRID && !body.has(`${nx},${ny}`)) {
+                        dir = p; break;
+                    }
+                }
+            }
+        }
+
+        function update() {
+            if(isAI) moveIA();
+            if(dir.x === 0 && dir.y === 0) return;
+
+            const head = {x: snake[0].x + dir.x, y: snake[0].y + dir.y};
+
+            // Mort
+            if(head.x < 0 || head.x >= GRID || head.y < 0 || head.y >= GRID || 
+               snake.some(s => s.x === head.x && s.y === head.y)) {
+                if(score > best) {
+                    best = score;
+                    localStorage.setItem('snakeBest', best);
+                    highEl.innerText = best.toString().padStart(3, '0');
+                }
+                score = 0;
+                scoreEl.innerText = "000";
+                snake = [{x: 10, y: 10}];
+                dir = {x: 0, y: 0};
+                return;
+            }
+
+            snake.unshift(head);
+            if(head.x === food.x && head.y === food.y) {
+                score++;
+                scoreEl.innerText = score.toString().padStart(3, '0');
+                spawnFood();
+            } else {
+                snake.pop();
+            }
+        }
+
+        function spawnFood() {
+            food = {x: Math.floor(Math.random()*GRID), y: Math.floor(Math.random()*GRID)};
+            if(snake.some(s => s.x === food.x && s.y === food.y)) spawnFood();
+        }
+
+        function draw() {
+            ctx.fillStyle = '#050505';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            drawGrid();
+
+            // Food
+            ctx.shadowBlur = 15;
+            ctx.shadowColor = COLORS.food;
+            ctx.fillStyle = COLORS.food;
+            ctx.beginPath();
+            ctx.arc(food.x*SIZE + SIZE/2, food.y*SIZE + SIZE/2, SIZE/3, 0, Math.PI*2);
+            ctx.fill();
+
+            // Snake
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = COLORS.snake;
+            snake.forEach((s, i) => {
+                ctx.fillStyle = i === 0 ? '#fff' : COLORS.snake;
+                const alpha = 1 - (i / snake.length) * 0.6;
+                ctx.globalAlpha = alpha;
+                ctx.fillRect(s.x*SIZE+2, s.y*SIZE+2, SIZE-4, SIZE-4);
+            });
+            ctx.globalAlpha = 1;
+            ctx.shadowBlur = 0;
+        }
+
+        function loop() {
+            frameCount++;
+            const speed = 11 - document.getElementById('speed').value;
+            if(frameCount % speed === 0) {
+                update();
+            }
+            draw();
+            requestAnimationFrame(loop);
+        }
+
+        // Inputs
+        window.addEventListener('keydown', e => {
+            if(isAI) return;
+            if(e.key === 'ArrowUp' && dir.y !== 1) dir = {x:0, y:-1};
+            if(e.key === 'ArrowDown' && dir.y !== -1) dir = {x:0, y:1};
+            if(e.key === 'ArrowLeft' && dir.x !== 1) dir = {x:-1, y:0};
+            if(e.key === 'ArrowRight' && dir.x !== -1) dir = {x:1, y:0};
+        });
+
+        modeBtn.onclick = () => {
+            isAI = !isAI;
+            modeBtn.innerText = isAI ? "Mode : IA ACTIVE" : "Mode : MANUEL";
+            modeBtn.style.background = isAI ? "" : "var(--danger)";
+        };
+
+        init();
+    </script>
+</body>
+</html>
